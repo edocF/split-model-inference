@@ -14,9 +14,13 @@ def run_node1_on_receive(batch_idx, timers, received_data, intermediate, model, 
             timers[0].record(batch_idx)
             reconstructed_output = encoder_decoder.decompress(intermediate, shape, huffman_codec)
             timers[1].record(batch_idx)
+            # ensure device consistency
+            device = next(sp_model[1].parameters()).device
+            reconstructed_output = reconstructed_output.to(device)
             output = sp_model[1].forward(reconstructed_output)
         else:
-            output = model(intermediate)
+            device = next(model.parameters()).device
+            output = model(intermediate.to(device))
 
         output = F.log_softmax(output, dim=2)
         output = output.transpose(0, 1)

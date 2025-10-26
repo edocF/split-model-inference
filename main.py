@@ -2,6 +2,11 @@ import argparse
 from pathlib import Path
 
 import torchaudio
+try:
+    # Prefer soundfile backend on Windows to read FLAC files
+    torchaudio.set_audio_backend("soundfile")
+except Exception:
+    pass
 
 from encoder.AutoEncoders import AutoEncoders
 from encoder.huffman import Huffman
@@ -11,13 +16,32 @@ from train_and_test.train import train_model
 from train_and_test.train_autoencoders import train_autoencoders
 
 
-def get_encoder(encoder_type, encoder_path):
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return False
+    v = str(v).lower()
+    if v in ('yes', 'true', 't', 'y', '1'):
+        return True
+    if v in ('no', 'false', 'f', 'n', '0'):
+        return False
+    raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
+def get_encoder(encoder_type, encoder_path, hparams):
     if encoder_type == 'huffman':
         print('Huffman Encoder is being used!')
         return Huffman()
     elif encoder_type == 'autoencoder':
         print('AutoEncoder is being used!')
-        return AutoEncoders(encoder_path)
+        return AutoEncoders(
+            encoder_path,
+            input_size=hparams['input_layers'],
+            hidden_size=hparams['hidden_layers'],
+            output_size=hparams['output_layers'],
+            leaky_relu=hparams['leaky_relu']
+        )
     else:
         return None
 
@@ -30,7 +54,8 @@ def create_folder(path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Parameters for split model inference')
-    parser.add_argument('-split_mode', action='store_true', default=False, required=False, help='Mode - split or full')
+    parser.add_argument('-split_mode', nargs='?', const=True, default=False, type=str2bool, required=False,
+                        help='Enable split inference. Use "-split_mode" for True or "-split_mode False"')
     parser.add_argument('-host', metavar='host', action='store',
                         default="node0.grp19-cs744-3.uwmadison744-f20-pg0.wisc.cloudlab.us", required=False,
                         help='Hostname to connect')
@@ -52,25 +77,44 @@ if __name__ == '__main__':
                                                                         'decoder')
     parser.add_argument('-rank', metavar='Rank of node', action='store', default=0, required=False,
                         help='Rank of the node')
+    # model size hyperparameters
+    parser.add_argument('-n_cnn_layers', metavar='CNN layers', action='store', type=int, default=3, required=False,
+                        help='Number of residual CNN layers')
+    parser.add_argument('-n_rnn_layers', metavar='RNN layers', action='store', type=int, default=3, required=False,
+                        help='Number of BiGRU layers')
+    parser.add_argument('-rnn_dim', metavar='RNN dim', action='store', type=int, default=256, required=False,
+                        help='Hidden size for GRU and FC output from CNN stack')
+    parser.add_argument('-dropout', metavar='Dropout', action='store', type=float, default=0.1, required=False,
+                        help='Dropout ratio')
+    # autoencoder sizes (used when -encoder autoencoder)
+    parser.add_argument('-ae_hidden', metavar='AE hidden dim', action='store', type=int, default=None, required=False,
+                        help='Autoencoder hidden dim (default: rnn_dim//4)')
+    parser.add_argument('-ae_output', metavar='AE bottleneck dim', action='store', type=int, default=None, required=False,
+                        help='Autoencoder bottleneck dim (default: rnn_dim//16)')
     args = parser.parse_args()
 
     port = int(args.port)
     host = args.host
 
+    # derive autoencoder dims from rnn_dim if not explicitly set
+    derived_ae_hidden = args.ae_hidden if args.ae_hidden is not None else max(32, int(int(args.rnn_dim) // 4))
+    derived_ae_output = args.ae_output if args.ae_output is not None else max(8, int(int(args.rnn_dim) // 16))
+
     hparams = {
-        "n_cnn_layers": 3,
-        "n_rnn_layers": 5,
-        "rnn_dim": 512,
+        "n_cnn_layers": int(args.n_cnn_layers),
+        "n_rnn_layers": int(args.n_rnn_layers),
+        "rnn_dim": int(args.rnn_dim),
         "n_class": 29,
-        "n_feats": 128,
+        "n_feats": 64,
         "stride": 2,
-        "dropout": 0.1,
+        "dropout": float(args.dropout),
         "learning_rate": 5e-4,
         "batch_size": int(args.batch),
         "epochs": int(args.epochs),
-        "input_layers": 512,
-        "hidden_layers": 128,
-        "output_layers": 32,
+        # AE tied to rnn_dim by default
+        "input_layers": int(args.rnn_dim),
+        "hidden_layers": int(derived_ae_hidden),
+        "output_layers": int(derived_ae_output),
         "leaky_relu": 0.2
     }
     node_rank = int(args.rank)
@@ -88,22 +132,18 @@ if __name__ == '__main__':
     save_filepath = '{}/{}'.format(args.path, args.savefile)
     encoder_base_path = '{}/{}'.format(args.path, args.encoderpath)
     if args.test:
-        model = load_model(save_filepath, hparams)
-        sp_model = load_split_model(save_filepath, hparams)
-
-        encoder = get_encoder(args.encoder, encoder_base_path)
-
+        encoder = get_encoder(args.encoder, encoder_base_path, hparams)
         if not bool(args.split_mode):
             print('Evaluating complete model without any splitting')
+            model = load_model(save_filepath, hparams)
             evaluate_model(hparams, model, None, test_dataset, encoder, node_rank, host, port)
         else:
             print('Evaluating split model')
+            sp_model = load_split_model(save_filepath, hparams)
             evaluate_model(hparams, None, sp_model, test_dataset, encoder, node_rank, host, port)
     else:
         if args.encoder == 'autoencoder':
             sp_model = load_split_model(save_filepath, hparams)
-            model = train_autoencoders(sp_model, hparams, train_dataset)
-            save_model(model, encoder_base_path)
+            model = train_autoencoders(sp_model, hparams, train_dataset, save_filepath=encoder_base_path)
         else:
-            model = train_model(hparams, train_dataset, test_dataset)
-            save_model(model, save_filepath)
+            model = train_model(hparams, train_dataset, test_dataset, save_filepath=save_filepath)

@@ -17,7 +17,9 @@ class Huffman(EncoderDecoder):
         print("Huffman encode")
         self.dim = x.shape
         print("in huffman, shape = {}".format(x.shape))
-        # Convert pytorch tensor into numpy array
+        # Convert pytorch tensor into numpy array (move to CPU if needed)
+        if x.is_cuda:
+            x = x.detach().cpu()
         tensor = x.numpy()
         # Convert numpy array into a single array
         a = np.array(tensor)

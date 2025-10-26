@@ -11,12 +11,12 @@ def data_processing(data, data_type="train"):
     input_lengths = []
     label_lengths = []
     train_audio_transforms = nn.Sequential(
-        torchaudio.transforms.MelSpectrogram(sample_rate=16000, n_mels=128),
+        torchaudio.transforms.MelSpectrogram(sample_rate=16000, n_mels=64),
         torchaudio.transforms.FrequencyMasking(freq_mask_param=30),
         torchaudio.transforms.TimeMasking(time_mask_param=100)
     )
 
-    valid_audio_transforms = torchaudio.transforms.MelSpectrogram()
+    valid_audio_transforms = torchaudio.transforms.MelSpectrogram(n_mels=64)
     text_transform = TextTransform()
 
     for (waveform, _, utterance, _, _, _) in data:
@@ -53,3 +53,11 @@ def GreedyDecoder(output, labels, label_lengths, blank_label=28, collapse_repeat
                 decode.append(index.item())
         decodes.append(text_transform.int_to_text(decode))
     return decodes, targets
+
+
+def collate_fn_train(batch):
+    return data_processing(batch, 'train')
+
+
+def collate_fn_valid(batch):
+    return data_processing(batch, 'valid')

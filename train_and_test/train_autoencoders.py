@@ -4,8 +4,9 @@ import torch
 import torch.nn as nn
 import torch.utils.data as data
 
-from data_processing.data_pipeline import data_processing
+from data_processing.data_pipeline import collate_fn_train
 from model.AutoEncoderDecoder import AutoEncoderDecoder
+from model.save_load_model import save_model
 
 
 def train(sp_model, encoder_model, device, train_loader, criterion, optimizer, scheduler, epoch):
@@ -33,7 +34,7 @@ def train(sp_model, encoder_model, device, train_loader, criterion, optimizer, s
                        100. * batch_idx / len(train_loader), loss.item()))
 
 
-def train_autoencoders(sp_model, hparams, train_dataset):
+def train_autoencoders(sp_model, hparams, train_dataset, save_filepath=None):
     use_cuda = torch.cuda.is_available()
     torch.manual_seed(7)
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -41,11 +42,11 @@ def train_autoencoders(sp_model, hparams, train_dataset):
     if not os.path.isdir("./data"):
         os.makedirs("./data")
 
-    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+    kwargs = {'num_workers': 0, 'pin_memory': False}
     train_loader = data.DataLoader(dataset=train_dataset,
                                    batch_size=hparams['batch_size'],
                                    shuffle=True,
-                                   collate_fn=lambda x: data_processing(x, 'train'),
+                                   collate_fn=collate_fn_train,
                                    **kwargs)
 
     model = AutoEncoderDecoder(hparams['input_layers'], hparams['hidden_layers'], hparams['output_layers'],
@@ -62,4 +63,6 @@ def train_autoencoders(sp_model, hparams, train_dataset):
     for epoch in range(1, hparams['epochs'] + 1):
         train(sp_model, model, device, train_loader, criterion, optimizer, scheduler, epoch)
 
+    if save_filepath is not None:
+        save_model(model, save_filepath)
     return model
