@@ -29,19 +29,13 @@ def str2bool(v):
     raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def get_encoder(encoder_type, encoder_path, hparams):
+def get_encoder(encoder_type, encoder_path):
     if encoder_type == 'huffman':
         print('Huffman Encoder is being used!')
         return Huffman()
     elif encoder_type == 'autoencoder':
         print('AutoEncoder is being used!')
-        return AutoEncoders(
-            encoder_path,
-            input_size=hparams['input_layers'],
-            hidden_size=hparams['hidden_layers'],
-            output_size=hparams['output_layers'],
-            leaky_relu=hparams['leaky_relu']
-        )
+        return AutoEncoders(encoder_path)
     else:
         return None
 
@@ -77,44 +71,25 @@ if __name__ == '__main__':
                                                                         'decoder')
     parser.add_argument('-rank', metavar='Rank of node', action='store', default=0, required=False,
                         help='Rank of the node')
-    # model size hyperparameters
-    parser.add_argument('-n_cnn_layers', metavar='CNN layers', action='store', type=int, default=3, required=False,
-                        help='Number of residual CNN layers')
-    parser.add_argument('-n_rnn_layers', metavar='RNN layers', action='store', type=int, default=3, required=False,
-                        help='Number of BiGRU layers')
-    parser.add_argument('-rnn_dim', metavar='RNN dim', action='store', type=int, default=256, required=False,
-                        help='Hidden size for GRU and FC output from CNN stack')
-    parser.add_argument('-dropout', metavar='Dropout', action='store', type=float, default=0.1, required=False,
-                        help='Dropout ratio')
-    # autoencoder sizes (used when -encoder autoencoder)
-    parser.add_argument('-ae_hidden', metavar='AE hidden dim', action='store', type=int, default=None, required=False,
-                        help='Autoencoder hidden dim (default: rnn_dim//4)')
-    parser.add_argument('-ae_output', metavar='AE bottleneck dim', action='store', type=int, default=None, required=False,
-                        help='Autoencoder bottleneck dim (default: rnn_dim//16)')
     args = parser.parse_args()
 
     port = int(args.port)
     host = args.host
 
-    # derive autoencoder dims from rnn_dim if not explicitly set
-    derived_ae_hidden = args.ae_hidden if args.ae_hidden is not None else max(32, int(int(args.rnn_dim) // 4))
-    derived_ae_output = args.ae_output if args.ae_output is not None else max(8, int(int(args.rnn_dim) // 16))
-
     hparams = {
-        "n_cnn_layers": int(args.n_cnn_layers),
-        "n_rnn_layers": int(args.n_rnn_layers),
-        "rnn_dim": int(args.rnn_dim),
+        "n_cnn_layers": 3,
+        "n_rnn_layers": 3,
+        "rnn_dim": 256,
         "n_class": 29,
         "n_feats": 64,
         "stride": 2,
-        "dropout": float(args.dropout),
+        "dropout": 0.1,
         "learning_rate": 5e-4,
         "batch_size": int(args.batch),
         "epochs": int(args.epochs),
-        # AE tied to rnn_dim by default
-        "input_layers": int(args.rnn_dim),
-        "hidden_layers": int(derived_ae_hidden),
-        "output_layers": int(derived_ae_output),
+        "input_layers": 256,
+        "hidden_layers": 64,
+        "output_layers": 16,
         "leaky_relu": 0.2
     }
     node_rank = int(args.rank)
@@ -132,7 +107,7 @@ if __name__ == '__main__':
     save_filepath = '{}/{}'.format(args.path, args.savefile)
     encoder_base_path = '{}/{}'.format(args.path, args.encoderpath)
     if args.test:
-        encoder = get_encoder(args.encoder, encoder_base_path, hparams)
+        encoder = get_encoder(args.encoder, encoder_base_path)
         if not bool(args.split_mode):
             print('Evaluating complete model without any splitting')
             model = load_model(save_filepath, hparams)

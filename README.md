@@ -132,4 +132,3 @@ python main.py -test -split_mode True -rank 0 -host <server_ip_or_hostname> -por
 本仓库为课程/研究用途示例。如基于此代码进行研究/复现，请引用原仓库：[`rawahars/split-model-inference`](https://github.com/rawahars/split-model-inference)。
 
 
-"# split-model-inference" 
